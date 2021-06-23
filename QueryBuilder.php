@@ -34,7 +34,7 @@ class QueryBuilder
 
     public function join($table, $first, $operator, $second)
     {
-        $this->where[] = [
+        $this->join[] = [
             'table' => $table,
             'first' => $first,
             'operator' => $operator,
@@ -55,15 +55,23 @@ class QueryBuilder
         return $this;
     }
 
+    public function when($condition, $closure)
+    {
+        if ($condition) {
+            $closure($this);
+        }
+
+        return $this;
+    }
+
     private function getWhereStatements()
     {
         $whereStatements = [];
 
         foreach ($this->where as $index => $condition) {
             $whereStatements[] = [
-                'stmt' => ':whereColumn' . $index . ' ' . $condition['operator'] . ' ' . ':whereValue' . $index,
+                'stmt' => $condition['column'] . ' ' . $condition['operator'] . ' ' . ':whereValue' . $index,
                 'bind' => [
-                    'whereColumn' . $index => $condition['column'],
                     'whereValue' . $index => $condition['value'],
                 ]
             ];
@@ -78,13 +86,8 @@ class QueryBuilder
 
         foreach ($this->join as $index => $condition) {
             $joinStatements[] = [
-                'stmt' => 'INNER JOIN :joinTable' . $index .
-                    ' ON :joinFirst' . $index . ' ' . $condition['operator'] . ' ' . ':joinSecond' . $index,
-                'bind' => [
-                    'joinTable' . $index => $condition['table'],
-                    'joinFirst' . $index => $condition['first'],
-                    'joinSecond' . $index => $condition['second'],
-                ]
+                'stmt' => ' INNER JOIN ' .  $condition['table'] .
+                    ' ON ' .$condition['first'] . ' ' . $condition['operator'] . ' ' . $condition['second'],
             ];
         }
 
@@ -101,7 +104,6 @@ class QueryBuilder
         if (!empty($joinStmt)) {
             foreach ($joinStmt as $join) {
                 $sqlString .= $join['stmt'];
-                $bindings = array_merge($bindings, $join['bind']);
             }
         }
 
@@ -111,9 +113,16 @@ class QueryBuilder
             $sqlString .= ' WHERE ';
 
             $sqlString .= implode(' AND ', array_column($whereStmt, 'stmt'));
-            $bindings = array_merge($bindings, array_column($whereStmt, 'bind'));
+            $bindings = array_merge($bindings, ...array_column($whereStmt, 'bind'));
         }
 
-        var_dump($sqlString, $bindings);
+        $stmt = $this->connection->prepare($sqlString);
+
+
+        foreach ($bindings as $key => $binding) {
+            $stmt->bindParam(':' . $key, $binding);
+        }
+
+        return $stmt;
     }
 }
